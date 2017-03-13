@@ -12,6 +12,8 @@ type Config struct {
 type Crawler struct {
 	*Config
 	*logrus.Logger
+
+	*Spider
 }
 
 func (c *Crawler) Run() {
@@ -19,4 +21,8 @@ func (c *Crawler) Run() {
 }
 
 func (cr *Crawler) Stop() {
+}
+
+func (cr *Crawler) openSpider() {
+
 }
