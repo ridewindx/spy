@@ -1,6 +1,43 @@
 package spy
 
-type Spider struct {
-	startRequests func() []Request
+type Item struct {
+	*Response
+	item []string
 }
 
+type ISpider interface {
+	startRequests() ([]Request, error)
+	parseNext(response *Response) (*Item, error)
+}
+
+type Spider struct {
+	startURLs []string
+}
+
+func (s *Spider) startResusts() ([]Request, error) {
+	reqs := make([]Request, len(s.startURLs))
+	for _, urlStr := range s.startURLs {
+		req, err := NewRequest(urlStr, "")
+		if err != nil {
+			return nil, err
+		}
+		reqs = append(reqs, *req)
+	}
+	return reqs, nil
+}
+
+func (s *Spider) parseNext(response *Response) (*Item, error) {
+	panic("not implemented")
+}
+
+type CrawlSpider struct {
+	*Spider
+}
+
+func (s *CrawlSpider) parseNext(response *Response) (*Item, error) {
+
+}
+
+type Rule struct {
+	
+}
