@@ -3,6 +3,8 @@ package spy
 import (
 	"fmt"
 	"regexp"
+	"sync"
+	"strings"
 )
 
 // common file extensions that are not followed if they occur in links
@@ -86,14 +88,60 @@ type HTMLLinkExtractor struct {
 	// Only for those tags specified in the tags parameter.
 	// Defaults to {"href"}.
 	Attrs []string
+
+	tags string
 }
 
-func (hle *HTMLLinkExtractor) ExtractLinks(response *Response) ([]Link, error) {
+func (hle *HTMLLinkExtractor) Init() {
+	if len(hle.Tags) == 0 {
+		hle.Tags = []string{"a", "area"}
+	}
+	hle.tags = strings.Join(hle.Tags, ",")
+
+	if len(hle.Attrs) == 0 {
+		hle.Attrs = []string{"href"}
+	}
+}
+
+func (hle *HTMLLinkExtractor) ExtractLinks(response *Response) ([]*Link, error) {
 	baseUrl, err := response.getBaseUrl()
 	if err != nil {
 		return nil, err
 	}
 
-	
+	var links []*Link
+	for _, element := range response.Select(hle.tags) {
+		for _, attrName := range hle.Attrs {
+			attrVal, exists := element.Attr(attrName)
+			if !exists {
+				continue
+			}
 
+			attrVal = strings.Trim(attrVal, " \t\n\r\x0c") // strip html5 whitespaces
+			attrVal = baseUrl.ResolveReference(attrVal)
+			if attrVal == "" {
+				continue
+			}
+
+			var noFollow bool
+			rel, exists := element.Attr("rel")
+			if exists {
+				for _, s := range strings.Split(rel, " ") {
+					if s == "nofollow" {
+						noFollow = true
+						break
+					}
+				}
+			}
+
+			links = append(links, &Link{
+				url: attrVal,
+				text: element.Extract(),
+				noFollow: noFollow,
+			})
+		}
+	}
+
+	// TODO: unique
+	return links, nil
 }

@@ -80,10 +80,11 @@ func NewGoquerySelector(doc *goquery.Document) *GoquerySelector {
 }
 
 func (gs *GoquerySelector) Select(query string) Selectors {
-	var result = make(Selectors, gs.Length())
-	gs.Find(query).Each(func(i int, s *goquery.Selection) {
-		result = append(result, Selector(GoquerySelector{s}))
-	})
+	s := gs.Find(query)
+	var result = make(Selectors, s.Length())
+	for i := range result {
+		result[i] = GoquerySelector{s.Eq(i)}
+	}
 	return result
 }
 

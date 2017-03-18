@@ -84,7 +84,7 @@ func (r *Response) Select(query string) Selectors {
 }
 
 func (r *Response) getBaseUrl() (baseUrl *url.URL, err error) {
-	bases := r.Select("head > base").Attrs("href")
+	bases := r.Select("html > head > base").Attrs("href")
 	if len(bases) > 0 {
 		baseUrl, err = url.Parse(bases)
 		if err != nil {
