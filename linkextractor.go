@@ -89,7 +89,11 @@ type HTMLLinkExtractor struct {
 }
 
 func (hle *HTMLLinkExtractor) ExtractLinks(response *Response) ([]Link, error) {
+	baseUrl, err := response.getBaseUrl()
+	if err != nil {
+		return nil, err
+	}
+
+	
 
 }
-
-

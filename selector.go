@@ -9,6 +9,7 @@ type Selector interface {
 	Select(query string) Selectors
 	Regex(regex interface{}) []string
 	Extract() string
+	Attr(attrName string) (val string, exists bool)
 }
 
 type Selectors []Selector
@@ -42,6 +43,17 @@ func (ss Selectors) RegexFirst(regex interface{}) string {
 	return ""
 }
 
+func (ss Selectors) Attrs(attrName string) []string {
+	var result []string
+	for _, s := range ss {
+		val, exists := s.Attr(attrName)
+		if exists {
+			result = append(val, exists)
+		}
+	}
+	return result
+}
+
 func (ss Selectors) Extract() []string {
 	var result []string
 	for _, s := range ss {
@@ -70,7 +82,7 @@ func NewGoquerySelector(doc *goquery.Document) *GoquerySelector {
 func (gs *GoquerySelector) Select(query string) Selectors {
 	var result = make(Selectors, gs.Length())
 	gs.Find(query).Each(func(i int, s *goquery.Selection) {
-		result = append(result, s)
+		result = append(result, Selector(GoquerySelector{s}))
 	})
 	return result
 }
@@ -81,9 +93,9 @@ func (gs *GoquerySelector) Regex(regex interface{}) []string {
 	var result []string
 	for _, slice := range re.FindAllStringSubmatch(gs.Extract(), -1) {
 		if len(slice) == 1 {
-			result = append(result, slice[0]) // no submatch
+			result = append(result, slice[0]) // the whole match, no submatch
 		} else {
-			result = append(result, slice[1:]...) // exclude the whole match
+			result = append(result, slice[1:]...) // submatches, exclude the whole match
 		}
 	}
 	return result
@@ -92,6 +104,10 @@ func (gs *GoquerySelector) Regex(regex interface{}) []string {
 func (gs *GoquerySelector) Extract() string {
 	// TODO: html.UnescapeString
 	return gs.Text()
+}
+
+func (gs *GoquerySelector) Attr(attrName string) (val string, exists bool) {
+	return gs.Attr(attrName)
 }
 
 func getRegex(regex interface{}) *regexp.Regexp {
