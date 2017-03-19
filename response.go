@@ -83,16 +83,13 @@ func (r *Response) Select(query string) Selectors {
 	return r.Selector().Select(query)
 }
 
-func (r *Response) getBaseUrl() (baseUrl *url.URL, err error) {
+func (r *Response) getBaseUrl() *url.URL {
 	bases := r.Select("html > head > base").Attrs("href")
 	if len(bases) > 0 {
-		baseUrl, err = url.Parse(bases)
-		if err != nil {
-			return
+		baseUrl, err := url.Parse(bases[0])
+		if err == nil {
+			return r.Response.Request.URL.ResolveReference(baseUrl)
 		}
-		baseUrl = r.Response.Request.URL.ResolveReference(baseUrl)
-	} else {
-		baseUrl = r.Response.Request.URL
 	}
-	return
+	return r.Response.Request.URL
 }
