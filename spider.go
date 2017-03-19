@@ -6,7 +6,7 @@ type Item struct {
 }
 
 type ISpider interface {
-	startRequests() ([]Request, error)
+	startRequests() ([]*Request, error)
 	parseNext(response *Response) (*Item, error)
 }
 
@@ -14,14 +14,14 @@ type Spider struct {
 	startURLs []string
 }
 
-func (s *Spider) startResusts() ([]Request, error) {
-	reqs := make([]Request, len(s.startURLs))
-	for _, urlStr := range s.startURLs {
+func (s *Spider) startResusts() ([]*Request, error) {
+	reqs := make([]*Request, 0, len(s.startURLs))
+	for i, urlStr := range s.startURLs {
 		req, err := NewRequest(urlStr, "")
 		if err != nil {
 			return nil, err
 		}
-		reqs = append(reqs, *req)
+		reqs[i] = req
 	}
 	return reqs, nil
 }
