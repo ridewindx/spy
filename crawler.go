@@ -9,6 +9,7 @@ type Crawler struct {
 	*logrus.Logger
 
 	*Spider
+	fetcher IFetcher
 }
 
 func (c *Crawler) Run() {
