@@ -1,13 +1,8 @@
 package spy
 
 import (
-	"github.com/spf13/viper"
 	"github.com/Sirupsen/logrus"
 )
-
-type Config struct {
-	*viper.Viper
-}
 
 type Crawler struct {
 	*Config
