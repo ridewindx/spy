@@ -12,7 +12,7 @@ func NewItemPipelineManager() *ItemPipelineManager {
 
 func (ipm *ItemPipelineManager) Register(middleware Middleware) {
 	ipm.MiddlewareManager.Register(middleware)
-	ipm.addHandler("ProcessItem")
+	ipm.addHandler(middleware, "ProcessItem")
 }
 
 func (ipm *ItemPipelineManager) ProcessItem(item *Item, spider ISpider) *Item {
