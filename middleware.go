@@ -10,7 +10,7 @@ type OnSpiderOpeneder interface {
 }
 
 type OnSpiderCloseder interface {
-	OnSpiderClosed(spider Spider)
+	OnSpiderClosed(spider ISpider)
 }
 
 type FromCrawlerer interface {
@@ -40,7 +40,7 @@ func NewMiddlewareManager() *MiddlewareManager {
 func (mm *MiddlewareManager) Register(middleware Middleware) {
 	mm.middlewares = append(mm.middlewares, middleware)
 	mm.methods["OnSpiderOpened"] = append(mm.methods["OnSpiderOpened"], middleware.OnSpiderOpened)
-	mm.methods["OnSpiderClosed"] = append([]Middleware{middleware.OnSpiderClosed}, mm.methods["OnSpiderClosed"]...)
+	mm.methods["OnSpiderClosed"] = append([]interface{}{middleware.OnSpiderClosed}, mm.methods["OnSpiderClosed"]...)
 }
 
 func (mm *MiddlewareManager) OnSpiderOpened(spider Spider) {
@@ -55,26 +55,56 @@ func (mm *MiddlewareManager) OnSpiderClosed(spider Spider) {
 	}
 }
 
-func (mm *MiddlewareManager) addHandler(middleware Middleware, handlerName string) {
+func (mm *MiddlewareManager) addHandler(middleware Middleware, handlerName string, prepend ...bool) {
 	v := reflect.ValueOf(middleware)
 	t := v.Type()
 	m, ok := t.MethodByName(handlerName)
 	if ok {
-		mm.methods[handlerName] = append(mm.methods[handlerName], func(in []reflect.Value) reflect.Value {
+		f := func(in []reflect.Value) reflect.Value {
 			in = append([]reflect.Value{v}, in...)
 			return m.Func.Call(in)
-		})
+		}
+		if len(prepend) == 0 || !prepend[0] {
+			mm.methods[handlerName] = append(mm.methods[handlerName], f)
+		} else {
+			mm.methods[handlerName] = append([]interface{}{f}, mm.methods[handlerName]...)
+		}
 	}
 }
 
 func (mm *MiddlewareManager) callHandler(handlerName string, object interface{}, args ...interface{}) interface{} {
+	iter := mm.callHandlerIterator(handlerName, object, args...)
+	var result interface{}
+	for iter.HasNext() {
+		result = iter.Next()
+	}
+	return result
+}
+
+func (mm *MiddlewareManager) callHandlerIterator(handlerName string, object interface{}, args ...interface{}) *MiddlewareManagerIterator {
 	in := make([]reflect.Value, 1+len(args))
 	in[0] = reflect.ValueOf(object)
 	for i, arg := range args {
 		in[i+1] = reflect.ValueOf(arg)
 	}
-	for _, m := range mm.methods(handlerName) {
-		in[0] = m.(func([]reflect.Value) reflect.Value)(in)
+	return &MiddlewareManagerIterator{
+		args:    in,
+		methods: mm.methods(handlerName),
 	}
-	return in[0].Interface()
+}
+
+type MiddlewareManagerIterator struct {
+	args    []reflect.Value
+	methods []interface{}
+	pos     int
+}
+
+func (mmi *MiddlewareManagerIterator) HasNext() bool {
+	return pos < len(in)
+}
+
+func (mmi *MiddlewareManagerIterator) Next() interface{} {
+	mmi.args[0] = mmi.methods[pos].(func([]reflect.Value) reflect.Value)(mmi.args)
+	pos++
+	return mmi.args[0].Interface()
 }
