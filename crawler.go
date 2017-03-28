@@ -8,17 +8,34 @@ type Crawler struct {
 	*Config
 	*logrus.Logger
 
-	*Spider
-	fetcher IFetcher
+	Spider ISpider
+	Scheduler IScheduler
+	Fetcher IFetcher
+
+	crawling bool
 }
 
-func (c *Crawler) Run() {
+func NewCrawler(spider ISpider, scheduler IScheduler) *Crawler {
+	return &Crawler{
+		Spider: spider,
+		Scheduler: scheduler,
+	}
+}
+
+func (c *Crawler) Craw() {
 	// TODO: signal handling for SIGTERM, SIGINT, SIGBREAK
+
+	if c.crawling {
+		panic("Crawling already taking place")
+	}
+	c.crawling = true
+
+
 }
 
 func (cr *Crawler) Stop() {
 }
 
-func (cr *Crawler) openSpider() {
+func (cr *Crawler) OpenSpider() {
 
 }
