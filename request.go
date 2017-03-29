@@ -9,20 +9,20 @@ import (
 
 type Request struct {
 	*http.Request
-
+	Error error
 	Meta map[string]interface{}
+	NotFilter bool
+	Callback func(response *Response, err error) (*SpiderResult, error)
 }
 
-func NewRequest(urlStr, method string) (*Request, error) {
-	req, err := http.NewRequest(method, urlStr, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Request{
-		Request: req,
+func NewRequest(urlStr, method string) *Request {
+	var req = &Request{
 		Meta: make(map[string]interface{}),
-	}, nil
+	}
+	// TODO: safe_url_string
+	// TODO: escape_ajax
+	req.Request, req.Error = http.NewRequest(method, urlStr, nil)
+	return req
 }
 
 func uniqueURL(u *url.URL, ignoreQuery bool) string {
