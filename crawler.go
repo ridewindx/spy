@@ -32,7 +32,7 @@ func NewCrawler(spider ISpider, scheduler IScheduler) *Crawler {
 		Spider: spider,
 		Scheduler: scheduler,
 		Concurrency: concurrency,
-		WorkPool: tunny.CreatePoolGeneric(concurrency)
+		WorkPool: tunny.CreatePoolGeneric(concurrency),
 	}
 }
 
@@ -58,14 +58,18 @@ func (c *Crawler) OpenSpider() {
 
 	SpiderOpened.Pub(c.Spider)
 
-	c.nextRequest()
+	for _, req := range startRequests {
+		c.Scheduler.EnqueueRequest(req)
+	}
+
+	c.scheduleRequests()
 }
 
 func (c *Crawler) CloseSpider() {
 
 }
 
-func (c *Crawler) nextRequest() {
+func (c *Crawler) scheduleRequests() {
 	if c.Paused {
 		return
 	}
@@ -75,19 +79,18 @@ func (c *Crawler) nextRequest() {
 		if request == nil {
 			break
 		}
-		c.Fetch(request)
+		c.fetch(request)
 	}
-
 }
 
-func (c *Crawler) needsBackout() {
+func (c *Crawler) needsBackout() bool {
 	return !c.crawling // TODO
 }
 
-func (c *Crawler) Fetch(request *Request) {
+func (c *Crawler) fetch(request *Request) {
 	result, err := c.Fetcher.Fetch(request, c.Spider)
 	if err != nil {
-		c.EnqueueScrape(nil, err, request)
+		c.enqueueScrape(nil, err, request)
 		return
 	}
 	if result.Response != nil {
@@ -99,24 +102,27 @@ func (c *Crawler) Fetch(request *Request) {
 		}).Debugf("Crawled request %s, status %d", request, result.Response.StatusCode)
 		ResponseReceived.Pub(c.Spider, request, result.Response)
 
-		c.EnqueueScrape(result.Response, nil, request)
+		c.enqueueScrape(result.Response, nil, request)
 	} else { // fetcher can return request, i.e., redirect
-		c.Fetch(result.Request)
+		c.fetch(result.Request)
 	}
 }
 
-func (c *Crawler) EnqueueScrape(response *Response, err error, request *Request) {
-
+func (c *Crawler) enqueueScrape(response *Response, err error, request *Request) {
+	c.WorkPool.SendWorkAsync(func() {
+		c.scrape(response, err, request)
+	}, nil)
 }
 
-func (c *Crawler) Scrape(response *Response, err error, request *Request) {
+func (c *Crawler) scrape(response *Response, err error, request *Request) {
 	result, err := c.SpiderMiddlewareManager.ScrapeResponse(request, response, c.Spider)
+
 	if err == nil {
 		for _, req := range result.Requests {
 			c.processSpiderRequest(req)
 		}
 		for _, item := range result.Items {
-			c.processSpiderItem(item)
+			c.processSpiderItem(item, response)
 		}
 
 	} else {
