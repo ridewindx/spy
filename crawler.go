@@ -90,7 +90,7 @@ func (c *Crawler) needsBackout() bool {
 func (c *Crawler) fetch(request *Request) {
 	result, err := c.Fetcher.Fetch(request, c.Spider)
 	if err != nil {
-		c.enqueueScrape(nil, err, request)
+		c.enqueueScrape(nil, err, request) // enqueue fetching error
 		return
 	}
 	if result.Response != nil {
@@ -102,7 +102,7 @@ func (c *Crawler) fetch(request *Request) {
 		}).Debugf("Crawled request %s, status %d", request, result.Response.StatusCode)
 		ResponseReceived.Pub(c.Spider, request, result.Response)
 
-		c.enqueueScrape(result.Response, nil, request)
+		c.enqueueScrape(result.Response, nil, request) // enqueue fetching response
 	} else { // fetcher can return request, i.e., redirect
 		c.fetch(result.Request)
 	}
@@ -115,7 +115,16 @@ func (c *Crawler) enqueueScrape(response *Response, err error, request *Request)
 }
 
 func (c *Crawler) scrape(response *Response, err error, request *Request) {
-	result, err := c.SpiderMiddlewareManager.ScrapeResponse(request, response, c.Spider)
+	var result *SpiderResult
+	if err == nil {
+		// spider and spider middlewares scrape the response
+		result, err = c.SpiderMiddlewareManager.ScrapeResponse(request, response, c.Spider)
+	} else if request.Callback != nil {
+		result, err = request.Callback(nil, err) // request callback handles fetching error
+		if err != nil && err != ErrIgnoreRequest {
+			c.Logger.WithError(err).Errorf("Fetching request %s", request)
+		}
+	}
 
 	if err == nil {
 		for _, req := range result.Requests {
