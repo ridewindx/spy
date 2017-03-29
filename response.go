@@ -29,6 +29,22 @@ type Response struct {
 
 	MediaType string
 	HTMLDoc   *goquery.Document
+
+	/* Request which generated this response.
+	This attribute is assigned in the `Crawler`, after the response and the request have passed
+    through all `Fetcher Middlewares`. In particular, this means that:
+
+    - HTTP redirections will cause the original request (to the URL before
+      redirection) to be assigned to the redirected response (with the final
+      URL after redirection).
+
+    - Response.Request.URL doesn't always equal Response.Response.URL
+
+    - This attribute is only available in the spider code, and in the `Spider Middlewares`,
+      but not in `Downloader Middlewares` (although you have the Request available there by
+      other means) and handlers of the `response_downloaded` signal.
+	*/
+	*Request
 }
 
 func NewResponse(hr *http.Response) (r *Response, err error) {
