@@ -20,6 +20,7 @@ type Crawler struct {
 	*ItemPipelineManager
 
 	crawling bool
+	Paused bool
 
 	*tunny.WorkPool
 }
@@ -51,18 +52,64 @@ func (c *Crawler) Stop() {
 }
 
 func (c *Crawler) OpenSpider() {
+	startRequests, err := c.SpiderMiddlewareManager.ProcessStartRequests(c.Spider.StartRequests(), c.Spider)
 
+	c.Scheduler.Open(c.Spider)
+
+	SpiderOpened.Pub(c.Spider)
+
+	c.nextRequest()
 }
 
 func (c *Crawler) CloseSpider() {
 
 }
 
-func (c *Crawler) EnqueueScrape() {
+func (c *Crawler) nextRequest() {
+	if c.Paused {
+		return
+	}
+
+	for !c.needsBackout() {
+		request := c.Scheduler.NextRequest()
+		if request == nil {
+			break
+		}
+		c.Fetch(request)
+	}
 
 }
 
-func (c *Crawler) Scrape(response *Response, request *Request) {
+func (c *Crawler) needsBackout() {
+	return !c.crawling // TODO
+}
+
+func (c *Crawler) Fetch(request *Request) {
+	result, err := c.Fetcher.Fetch(request, c.Spider)
+	if err != nil {
+		c.EnqueueScrape(nil, err, request)
+		return
+	}
+	if result.Response != nil {
+		result.Response.Request = request // tie request to response received
+		c.Logger.WithFields(logrus.Fields{
+			"action": "crawl",
+			"status": result.Response.StatusCode,
+			"request": request,
+		}).Debugf("Crawled request %s, status %d", request, result.Response.StatusCode)
+		ResponseReceived.Pub(c.Spider, request, result.Response)
+
+		c.EnqueueScrape(result.Response, nil, request)
+	} else { // fetcher can return request, i.e., redirect
+		c.Fetch(result.Request)
+	}
+}
+
+func (c *Crawler) EnqueueScrape(response *Response, err error, request *Request) {
+
+}
+
+func (c *Crawler) Scrape(response *Response, err error, request *Request) {
 	result, err := c.SpiderMiddlewareManager.ScrapeResponse(request, response, c.Spider)
 	if err == nil {
 		for _, req := range result.Requests {
@@ -94,7 +141,7 @@ func (c *Crawler) processSpiderItem(item *Item, response *Response) {
 
 		if err == ErrItemDropped {
 			c.Logger.WithFields(logrus.Fields{
-				"action": "dropped",
+				"action": "drop",
 				"item": item,
 			}).Warnf("Dropped item %s", item)
 			ItemDropped.Pub(c.Spider, response, item)
@@ -102,7 +149,7 @@ func (c *Crawler) processSpiderItem(item *Item, response *Response) {
 			c.Logger.WithError(err).Errorf("Processing item %s", item)
 		} else {
 			c.Logger.WithFields(logrus.Fields{
-				"action": "scraped",
+				"action": "scrap",
 				"item": resultItem,
 				"src": response,
 			}).Debugf("Scraped item %s from %s", resultItem, response)
