@@ -104,7 +104,13 @@ func (mmi *MiddlewareManagerIterator) HasNext() bool {
 }
 
 func (mmi *MiddlewareManagerIterator) Next() interface{} {
-	mmi.args[0] = mmi.methods[pos].(func([]reflect.Value) reflect.Value)(mmi.args)
+	object := mmi.args[0].Interface()
+	if object == nil {
+		object = mmi.methods[pos].(func([]reflect.Value) reflect.Value)(mmi.args[1:]).Interface()
+	} else {
+		mmi.args[0] = mmi.methods[pos].(func([]reflect.Value) reflect.Value)(mmi.args)
+		object = mmi.args[0].Interface()
+	}
 	pos++
-	return mmi.args[0].Interface()
+	return object
 }
