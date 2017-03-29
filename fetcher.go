@@ -9,7 +9,7 @@ import (
 )
 
 type IFetcher interface {
-
+	Fetch(req *Request, spider ISpider) (*FetchResult, error)
 }
 
 type Fetcher struct {
@@ -49,11 +49,22 @@ func NewFetcher() *Fetcher {
 	}
 }
 
-func (f *Fetcher) Fetch(req *Request, spider ISpider) {
+type FetchResult struct {
+	*Request
+	*Response
+	error
+}
+
+func (f *Fetcher) Fetch(req *Request, spider ISpider) (*FetchResult, error) {
 	f.active[req] = struct{}{}
 	defer delete(f.active, req)
 
-	f.FetcherMiddlewareManager.Fetch(f.enqueueRequest, req, spider)
+	// TODO
+	result := f.FetcherMiddlewareManager.Fetch(f.enqueueRequest, req, spider)
+	if result.error != nil {
+		return nil, result.error
+	}
+	return result, nil
 }
 
 func (f *Fetcher) NeedsBackout() bool {
@@ -156,13 +167,7 @@ func (f *Fetcher) getSlot(req *Request) (key string, slot *Slot) {
 	return
 }
 
-type FetcherMiddlewareResult struct {
-	*Request
-	*Response
-	error
-}
-
-func (fmr *FetcherMiddlewareResult) Empty() bool {
+func (fmr *FetchResult) Empty() bool {
 	return fmr == nil || (fmr.Request == nil && fmr.Response == nil && fmr.error == nil)
 }
 
@@ -170,9 +175,9 @@ type FetcherMiddleware interface {
 	Middleware
 
 	// One or more of the following methods should be implemented.
-	// ProcessRequest(request *Request, spider ISpider) *FetcherMiddlewareResult
-	// ProcessResponse(response *FetcherMiddlewareResult, spider ISpider) *FetcherMiddlewareResult
-	// ProcessException(exception *FetcherMiddlewareResult, spider ISpider) *FetcherMiddlewareResult
+	// ProcessRequest(request *Request, spider ISpider) *FetchResult
+	// ProcessResponse(response *FetchResult, spider ISpider) *FetchResult
+	// ProcessException(exception *FetchResult, spider ISpider) *FetchResult
 }
 
 type FetcherMiddlewareManager struct {
@@ -193,12 +198,12 @@ func (fmm *FetcherMiddlewareManager) Register(middleware FetcherMiddleware) {
 	fmm.addHandler(mw, "ProcessException", true)
 }
 
-func (fmm *FetcherMiddlewareManager) Fetch(fetcherFunc func(*Request, ISpider) *FetcherMiddlewareResult, req *Request, spider ISpider) *FetcherMiddlewareResult {
-	var result *FetcherMiddlewareResult
+func (fmm *FetcherMiddlewareManager) Fetch(fetcherFunc func(*Request, ISpider) *FetchResult, req *Request, spider ISpider) *FetchResult {
+	var result *FetchResult
 
 	iter := fmm.callHandlerIterator("ProcessRequest", req, spider)
 	for iter.HasNext() {
-		result = iter.Next().(*FetcherMiddlewareResult)
+		result = iter.Next().(*FetchResult)
 		if !result.Empty() {
 			break
 		}
@@ -211,7 +216,7 @@ func (fmm *FetcherMiddlewareManager) Fetch(fetcherFunc func(*Request, ISpider) *
 	if result.error != nil {
 		iter = fmm.callHandlerIterator("ProcessException", result, spider)
 		for iter.HasNext() {
-			result = iter.Next().(*FetcherMiddlewareResult)
+			result = iter.Next().(*FetchResult)
 			if !result.Empty() {
 				break
 			}
@@ -221,7 +226,7 @@ func (fmm *FetcherMiddlewareManager) Fetch(fetcherFunc func(*Request, ISpider) *
 	if result.error == nil {
 		iter = fmm.callHandlerIterator("ProcessResponse", result, spider)
 		for iter.HasNext() {
-			result = iter.Next().(*FetcherMiddlewareResult)
+			result = iter.Next().(*FetchResult)
 			if !result.Empty() {
 				break
 			}
