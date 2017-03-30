@@ -14,6 +14,14 @@ func NewStats(name string) *Stats {
 	}
 }
 
+func (stats *Stats) Open(spider ISpider) {
+
+}
+
+func (stats *Stats) Close(spider ISpider) {
+
+}
+
 func (stats *Stats) Get(key string) uint64 {
 	if v, ok := stats.stringBuckets[key]; ok {
 		return v
