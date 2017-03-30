@@ -14,6 +14,8 @@ func (sr *SpiderResult) Empty() bool {
 type ISpider interface {
 	StartRequests() []*Request
 	Parse(response *Response) (*SpiderResult, error)
+	FetchDelay() float64
+	ConcurrentRequests() int
 	String() string
 }
 

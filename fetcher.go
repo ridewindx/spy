@@ -71,7 +71,7 @@ func (f *Fetcher) Close() {
 }
 
 func (f *Fetcher) enqueueRequest(req *Request, spider ISpider) {
-	key, slot := f.getSlot(req)
+	slot := f.getSlot(req, spider)
 
 	slot.active[req] = struct{}{}
 	defer delete(slot.active, req)
@@ -124,14 +124,21 @@ func (f *Fetcher) fetch(slot *Slot, req *Request, spider ISpider) (*Response, er
 }
 
 func (f *Fetcher) computedDelay(spider ISpider) time.Duration {
+	delay := f.Delay
+
+	if d := spider.FetchDelay(); d > 0 {
+		delay = time.Duration(d*time.Second)
+	}
+
 	if f.RandomizeDelay {
-		return time.Duration(0.5*f.Delay + f.Rand.Int63n(int64(f.Delay)))
+		return time.Duration(0.5*delay + f.Rand.Int63n(int64(delay)))
 	} else {
 		return f.Delay
 	}
 }
 
-func (f *Fetcher) getSlot(req *Request) (key string, slot *Slot) {
+func (f *Fetcher) getSlot(req *Request, spider ISpider) *Slot {
+	var key string
 	if k, ok := req.Meta["downloadSlot"]; ok {
 		key = k.(string)
 	} else {
@@ -150,14 +157,17 @@ func (f *Fetcher) getSlot(req *Request) (key string, slot *Slot) {
 		slot = &Slot{
 			queue: queue.New(8), // TODO: queue size hint
 		}
-		if f.IpConcurrency {
-			slot.concurrency = f.IpConcurrency
-		} else {
-			slot.concurrency = f.DomainConcurrency
+		slot.concurrency = spider.ConcurrentRequests()
+		if slot.concurrency == 0 {
+			if f.IpConcurrency > 0 {
+				slot.concurrency = f.IpConcurrency
+			} else {
+				slot.concurrency = f.DomainConcurrency
+			}
 		}
 		f.slots[key] = slot
 	}
-	return
+	return slot
 }
 
 type FetcherMiddleware interface {}
