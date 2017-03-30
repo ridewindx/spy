@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"github.com/Sirupsen/logrus"
 	"github.com/Jeffail/tunny"
+	"github.com/ridewindx/crumb/concurrency"
 )
 
 type Crawler struct {
@@ -20,23 +21,24 @@ type Crawler struct {
 	*ItemPipelineManager
 
 	crawling bool
-	Paused bool
 
 	*tunny.WorkPool
+	*concurrency.Worker
 }
 
 func NewCrawler(spider ISpider, scheduler IScheduler) *Crawler {
-	concurrency := 100
+	concurrencyLimit := 100
 
 	return &Crawler{
 		Spider: spider,
 		Scheduler: scheduler,
-		Concurrency: concurrency,
-		WorkPool: tunny.CreatePoolGeneric(concurrency),
+		Concurrency: concurrencyLimit,
+		WorkPool: tunny.CreatePoolGeneric(concurrencyLimit),
+		Worker: concurrency.NewWorker(),
 	}
 }
 
-func (c *Crawler) Craw() {
+func (c *Crawler) Start() {
 	// TODO: signal handling for SIGTERM, SIGINT, SIGBREAK
 
 	if c.crawling {
@@ -45,42 +47,84 @@ func (c *Crawler) Craw() {
 	c.crawling = true
 
 	c.WorkPool.Open()
+
+	c.openSpider()
+
+	CrawlerStarted.Pub(c)
 }
 
 func (c *Crawler) Stop() {
+	c.crawling = false
+	c.closeSpider()
 	c.WorkPool.Close()
+	c.Worker.Stop()
+	CrawlerStopped.Pub(c)
 }
 
-func (c *Crawler) OpenSpider() {
-	startRequests, err := c.SpiderMiddlewareManager.ProcessStartRequests(c.Spider.StartRequests(), c.Spider)
+func (c *Crawler) openSpider() {
+	c.Logger.WithField("spider", c.Spider.String()).Info("Opening spider")
 
+	startRequests, err := c.SpiderMiddlewareManager.ProcessStartRequests(c.Spider.StartRequests(), c.Spider)
+	if err != nil {
+		c.Logger.WithError(err).WithField("spider", c.Spider.String()).Panicf("Processing starting requests")
+	}
+
+	c.Stats.Open(c.Spider)
 	c.Scheduler.Open(c.Spider)
+	c.ItemPipelineManager.Open(c.Spider)
 
 	SpiderOpened.Pub(c.Spider)
 
-	for _, req := range startRequests {
-		c.Scheduler.EnqueueRequest(req)
-	}
+	c.scheduleRequests(startRequests)
 
-	c.scheduleRequests()
+	c.Logger.WithField("spider", c.Spider.String()).Info("Opened spider")
 }
 
-func (c *Crawler) CloseSpider() {
+func (c *Crawler) closeSpider() {
+	c.Logger.WithField("spider", c.Spider.String()).Info("Closing spider")
 
+	c.ItemPipelineManager.Close(c.Spider)
+	c.Scheduler.Close(c.Spider)
+	c.Stats.Close(c.Spider)
+
+	SpiderClosed.Pub(c.Spider)
+
+	c.Logger.WithField("spider", c.Spider.String()).Info("Closed spider")
 }
 
-func (c *Crawler) scheduleRequests() {
-	if c.Paused {
-		return
-	}
+func (c *Crawler) Pause() {
+	c.Worker.Pause()
+}
 
-	for !c.needsBackout() {
-		request := c.Scheduler.NextRequest()
-		if request == nil {
-			break
+func (c *Crawler) Resume() {
+	c.Worker.Resume()
+}
+
+func (c *Crawler) enqueueRequest(request *Request) {
+	RequestScheduled.Pub(c.Spider, request)
+	ok := c.Scheduler.EnqueueRequest(request)
+	if !ok {
+		RequestDropped.Pub(c.Spider, request)
+	}
+}
+
+func (c *Crawler) scheduleRequests(startRequests []*Request) {
+	c.Worker.Start(func(sentry *concurrency.Sentry) {
+		// breadth first
+		for _, request := range startRequests {
+			c.enqueueRequest(request)
 		}
-		c.fetch(request)
-	}
+
+		for sentry.Stopped() && !c.needsBackout() {
+			sentry.Sleep()
+
+			request := c.Scheduler.NextRequest()
+			if request == nil {
+				break
+			}
+			c.fetch(request)
+		}
+	})
 }
 
 func (c *Crawler) needsBackout() bool {
@@ -89,6 +133,7 @@ func (c *Crawler) needsBackout() bool {
 
 func (c *Crawler) fetch(request *Request) {
 	result, err := c.Fetcher.Fetch(request, c.Spider)
+
 	if err != nil {
 		c.enqueueScrape(nil, err, request) // enqueue fetching error
 		return
@@ -96,7 +141,7 @@ func (c *Crawler) fetch(request *Request) {
 	if result.Response != nil {
 		result.Response.Request = request // tie request to response received
 		c.Logger.WithFields(logrus.Fields{
-			"action": "crawl",
+			"event": "RequestCrawled",
 			"status": result.Response.StatusCode,
 			"request": request,
 		}).Debugf("Crawled request %s, status %d", request, result.Response.StatusCode)
@@ -104,7 +149,7 @@ func (c *Crawler) fetch(request *Request) {
 
 		c.enqueueScrape(result.Response, nil, request) // enqueue fetching response
 	} else { // fetcher can return request, i.e., redirect
-		c.fetch(result.Request)
+		c.enqueueRequest(result.Request)
 	}
 }
 
@@ -156,7 +201,7 @@ func (c *Crawler) processSpiderItem(item *Item, response *Response) {
 
 		if err == ErrItemDropped {
 			c.Logger.WithFields(logrus.Fields{
-				"action": "drop",
+				"event": "ItemDropped",
 				"item": item,
 			}).Warnf("Dropped item %s", item)
 			ItemDropped.Pub(c.Spider, response, item)
@@ -164,7 +209,7 @@ func (c *Crawler) processSpiderItem(item *Item, response *Response) {
 			c.Logger.WithError(err).Errorf("Processing item %s", item)
 		} else {
 			c.Logger.WithFields(logrus.Fields{
-				"action": "scrap",
+				"event": "ItemScraped",
 				"item": resultItem,
 				"src": response,
 			}).Debugf("Scraped item %s from %s", resultItem, response)
