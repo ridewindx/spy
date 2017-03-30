@@ -14,6 +14,7 @@ func (sr *SpiderResult) Empty() bool {
 type ISpider interface {
 	StartRequests() []*Request
 	Parse(response *Response) (*SpiderResult, error)
+	String() string
 }
 
 type Spider struct {
@@ -31,6 +32,10 @@ func (s *Spider) StartResusts() []*Request {
 
 func (s *Spider) Parse(response *Response) (*SpiderResult, error) {
 	panic("not implemented")
+}
+
+func (s *Spider) String() string {
+	return s.Name
 }
 
 type CrawlSpider struct {
@@ -78,13 +83,13 @@ func (smm *SpiderMiddlewareManager) Register(middleware SpiderMiddleware) {
 		smm.spiderInputProcessors = append(smm.spiderInputProcessors, p)
 	}
 	if p, ok := middleware.(SpiderOutputProcessor); ok {
-		smm.spiderOutputProcessors = append([]SpiderOutputProcessor{p}, smm.spiderOutputProcessors)
+		smm.spiderOutputProcessors = append([]SpiderOutputProcessor{p}, smm.spiderOutputProcessors...)
 	}
 	if p, ok := middleware.(SpiderErrorProcessor); ok {
-		smm.spiderErrorProcessors = append([]SpiderErrorProcessor{p}, smm.spiderErrorProcessors)
+		smm.spiderErrorProcessors = append([]SpiderErrorProcessor{p}, smm.spiderErrorProcessors...)
 	}
 	if p, ok := middleware.(StartRequestsProcessor); ok {
-		smm.startRequestsProcessors = append([]StartRequestsProcessor{p}, smm.startRequestsProcessors)
+		smm.startRequestsProcessors = append([]StartRequestsProcessor{p}, smm.startRequestsProcessors...)
 	}
 }
 
