@@ -2,8 +2,8 @@ package spy
 
 type IScheduler interface {
 	Open(spider ISpider)
-	Close()
-	EnqueueRequest(request *Request)
+	Close(spider ISpider)
+	EnqueueRequest(request *Request) bool
 	NextRequest() *Request
 }
 
@@ -21,7 +21,7 @@ func (s *Scheduler) Open(spider ISpider) {
 
 }
 
-func (s *Scheduler) Close() {
+func (s *Scheduler) Close(spider ISpider) {
 
 }
 
