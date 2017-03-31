@@ -43,16 +43,9 @@ type task struct {
 
 type Slot struct {
 	concurrency int
-	//queue *queue.Queue
-	tasks chan *task
-	active chan *Request
-	//active map[*Request]struct{}
-	transferring map[*Request]struct{}
-	lastSeen time.Time
-}
-
-func (s *Slot) freeSlots() int {
-	return s.concurrency - len(s.transferring)
+	tasks       chan *task
+	active      int
+	lastSeen    time.Time
 }
 
 func NewFetcher() *Fetcher {
@@ -66,35 +59,28 @@ func (f *Fetcher) Open(spider ISpider) {
 }
 
 func (f *Fetcher) Close(spider ISpider) {
-
+	for _, handler := range f.Handlers {
+		handler.Close()
+	}
 }
 
-func (f *Fetcher) Fetch(req *Request, spider ISpider) (*FetchResult, error) {
+func (f *Fetcher) Fetch(req *Request, spider ISpider) (*Response, *Request, error) {
 	f.active[req] = struct{}{}
 	defer delete(f.active, req)
 
-	rep, req, err := f.FetcherMiddlewareManager.Fetch(f.fetchRequest, req, spider)
-	if result.error != nil {
-		return nil, result.error
-	}
-	return result, nil
+	return f.FetcherMiddlewareManager.Fetch(f.fetchRequest, req, spider)
 }
 
 func (f *Fetcher) NeedsBackout() bool {
 	return len(f.active) >= f.TotalConcurrency
 }
 
-func (f *Fetcher) Close() {
-	for _, handler := range f.Handlers {
-		handler.Close()
-	}
-}
-
 func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) {
-	slot := f.getSlot(req, spider)
-
-	slot.active[req] = struct{}{}
-	defer delete(slot.active, req)
+	key := f.getSlotKey(req)
+	slot, ok := f.slots[key]
+	if !ok {
+		slot = f.addSlot(key, spider)
+	}
 
 	result := make(chan *fetchresult)
 
@@ -104,78 +90,66 @@ func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) 
 	return r.rep, r.err
 }
 
-func (f *Fetcher) processQueue(slot *Slot, spider ISpider) {
-	now := time.Now()
-	delay := f.computedDelay(spider)
-	if delay > 0 {
-		penalty := delay - now.Sub(slot.lastSeen)
-		if penalty > 0 {
-			// TODO:
-			return
-		}
-	}
-
-	for !slot.queue.Empty() && slot.freeSlots() > 0 {
-		slot.lastSeen = now
-		items, err := slot.queue.Poll(1, 1)
-		if err != nil {
-			panic(err) // TODO:
-		}
-		req := items[0].(*Request)
+func (f *Fetcher) work(slot *Slot, spider ISpider) {
+	for {
+		now := time.Now()
+		delay := f.computedDelay(spider)
 		if delay > 0 {
-			f.processQueue(slot, spider)
-			break
+			penalty := delay - now.Sub(slot.lastSeen)
+			if penalty > 0 {
+				time.Sleep(penalty)
+				continue
+			}
+		}
+
+		for len(slot.tasks) > 0 && (slot.concurrency-slot.active) > 0 {
+			task := <-slot.tasks
+
+			slot.lastSeen = time.Now()
+			go f.fetch(slot, task, spider)
+
+			if delay > 0 {
+				break
+			}
 		}
 	}
-	return
 }
 
-func (f *Fetcher) work(slot *Slot, spider ISpider) {
-	now := time.Now()
-	delay := f.computedDelay(spider)
-	if delay > 0 {
-		penalty := delay - now.Sub(slot.lastSeen)
-		if penalty > 0 {
-			time.Sleep(penalty)
-			return
-		}
-	}
+func (f *Fetcher) fetch(slot *Slot, task *task, spider ISpider) {
+	slot.active++
+	defer func() {
+		slot.active--
+	}()
 
-	task := <- slot.tasks
-	slot.lastSeen = time.Now()
-	rep, err := f.fetch(slot, task.request, spider)
+	req := task.request
+	var rep *Response
+	var err error
+	scheme := req.Request.URL.Scheme // TODO: not only http url
+	handler, ok := f.Handlers[scheme]
+	if ok {
+		rep, err = handler.Fetch(req, spider)
+	} else {
+		err = fmt.Errorf("unsupported URL scheme '%s'", scheme)
+	}
 	task.result <- &fetchresult{rep, err}
 }
 
-func (f *Fetcher) fetch(slot *Slot, req *Request, spider ISpider) (*Response, error){
-	slot.transferring[req] = struct{}{}
-	defer delete(slot.transferring, req)
-
-	f.processQueue(slot, spider) // TODO:
-
-	scheme := req.Request.URL.Scheme // TODO: not only http url
-	handler, ok := f.Handlers[scheme]
-	if !ok {
-		return nil, fmt.Errorf("unsupported URL scheme '%s'", scheme)
-	}
-	return handler.Fetch(req, spider), nil
-}
-
 func (f *Fetcher) computedDelay(spider ISpider) time.Duration {
-	delay := f.Delay
-
+	var delay time.Duration
 	if d := spider.FetchDelay(); d > 0 {
-		delay = time.Duration(d*time.Second)
+		delay = time.Duration(d)
+	} else {
+		delay = f.Delay
 	}
 
 	if f.RandomizeDelay {
 		return time.Duration(0.5*delay + f.Rand.Int63n(int64(delay)))
 	} else {
-		return f.Delay
+		return delay
 	}
 }
 
-func (f *Fetcher) getSlot(req *Request, spider ISpider) *Slot {
+func (f *Fetcher) getSlotKey(req *Request) string {
 	var key string
 	if k, ok := req.Meta["downloadSlot"]; ok {
 		key = k.(string)
@@ -189,29 +163,24 @@ func (f *Fetcher) getSlot(req *Request, spider ISpider) *Slot {
 		}
 		req.Meta["downloadSlot"] = key
 	}
+	return key
+}
 
-	slot, ok := f.slots[key]
-	if !ok {
-		slot = &Slot{
-			queue: queue.New(8), // TODO: queue size hint
+func (f *Fetcher) addSlot(key string, spider ISpider) *Slot {
+	slot := &Slot{}
+	slot.concurrency = spider.ConcurrentRequests()
+	if slot.concurrency == 0 {
+		if f.IpConcurrency > 0 {
+			slot.concurrency = f.IpConcurrency
+		} else {
+			slot.concurrency = f.DomainConcurrency
 		}
-		slot.concurrency = spider.ConcurrentRequests()
-		if slot.concurrency == 0 {
-			if f.IpConcurrency > 0 {
-				slot.concurrency = f.IpConcurrency
-			} else {
-				slot.concurrency = f.DomainConcurrency
-			}
-		}
-		slot.queue = make(chan *Request, slot.concurrency)
-		slot.active = make(chan *Request, slot.concurrency)
-
-		go func() {
-
-		}()
-
-		f.slots[key] = slot
 	}
+	slot.tasks = make(chan *task, slot.concurrency)
+
+	go f.work(slot, spider)
+
+	f.slots[key] = slot
 	return slot
 }
 

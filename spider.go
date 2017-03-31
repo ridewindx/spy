@@ -1,5 +1,7 @@
 package spy
 
+import "time"
+
 type Item map[string]interface{}
 
 type SpiderResult struct {
@@ -14,7 +16,7 @@ func (sr *SpiderResult) Empty() bool {
 type ISpider interface {
 	StartRequests() []*Request
 	Parse(response *Response) (*SpiderResult, error)
-	FetchDelay() float64
+	FetchDelay() time.Duration
 	ConcurrentRequests() int
 	String() string
 }
