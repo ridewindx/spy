@@ -22,7 +22,7 @@ type Fetcher struct {
 	*FetcherMiddlewareManager
 	slots             map[string]*Slot
 	dnscache          *dnscache.Resolver
-	active            map[*Request]struct{}
+	active            int
 	*rand.Rand
 	mutex             *sync.RWMutex
 	closed            chan struct{}
@@ -60,6 +60,7 @@ func NewFetcher() *Fetcher {
 
 func (f *Fetcher) Open(spider ISpider) {
 
+	go f.gcSlots()
 }
 
 func (f *Fetcher) Close(spider ISpider) {
@@ -76,14 +77,16 @@ func (f *Fetcher) Close(spider ISpider) {
 }
 
 func (f *Fetcher) Fetch(req *Request, spider ISpider) (*Response, *Request, error) {
-	f.active[req] = struct{}{}
-	defer delete(f.active, req)
+	f.active++
+	defer func() {
+		f.active--
+	}()
 
 	return f.FetcherMiddlewareManager.Fetch(f.fetchRequest, req, spider)
 }
 
 func (f *Fetcher) NeedsBackout() bool {
-	return len(f.active) >= f.TotalConcurrency
+	return f.active >= f.TotalConcurrency
 }
 
 func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) {
@@ -214,7 +217,10 @@ func (f *Fetcher) addSlot(key string, spider ISpider) *Slot {
 	return slot
 }
 
-func (f *Fetcher) purgeSlots() {
+func (f *Fetcher) gcSlots() {
+	f.waitGroup.Add(1)
+	defer f.waitGroup.Done()
+
 	ticker := time.NewTicker(time.Minute)
 	for {
 		select {
