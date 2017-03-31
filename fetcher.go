@@ -4,7 +4,7 @@ import (
 	"time"
 	"math/rand"
 	"fmt"
-	"github.com/Workiva/go-datastructures/queue"
+	"sync"
 	"github.com/ridewindx/crumb/dnscache"
 )
 
@@ -13,17 +13,20 @@ type IFetcher interface {
 }
 
 type Fetcher struct {
-	Handlers map[string]FetcherHandler
-	TotalConcurrency int
+	Handlers          map[string]FetcherHandler
+	TotalConcurrency  int
 	DomainConcurrency int
-	IpConcurrency int
-	Delay time.Duration
-	RandomizeDelay bool
+	IpConcurrency     int
+	Delay             time.Duration
+	RandomizeDelay    bool
 	*FetcherMiddlewareManager
-	slots map[string]*Slot
-	dnscache *dnscache.Resolver
-	active map[*Request]struct{}
+	slots             map[string]*Slot
+	dnscache          *dnscache.Resolver
+	active            map[*Request]struct{}
 	*rand.Rand
+	mutex             *sync.RWMutex
+	closed            chan struct{}
+	waitGroup *sync.WaitGroup
 }
 
 type FetcherHandler interface {
@@ -46,6 +49,7 @@ type Slot struct {
 	tasks       chan *task
 	active      int
 	lastSeen    time.Time
+	closed chan struct{}
 }
 
 func NewFetcher() *Fetcher {
@@ -62,6 +66,13 @@ func (f *Fetcher) Close(spider ISpider) {
 	for _, handler := range f.Handlers {
 		handler.Close()
 	}
+
+	close(f.closed)
+	for _, slot := range f.slots {
+		close(slot.closed)
+	}
+
+	f.waitGroup.Wait()
 }
 
 func (f *Fetcher) Fetch(req *Request, spider ISpider) (*Response, *Request, error) {
@@ -77,7 +88,9 @@ func (f *Fetcher) NeedsBackout() bool {
 
 func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) {
 	key := f.getSlotKey(req)
+	f.mutex.RLock()
 	slot, ok := f.slots[key]
+	f.mutex.RUnlock()
 	if !ok {
 		slot = f.addSlot(key, spider)
 	}
@@ -91,31 +104,43 @@ func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) 
 }
 
 func (f *Fetcher) work(slot *Slot, spider ISpider) {
+	f.waitGroup.Add(1)
+	defer f.waitGroup.Done()
+
 	for {
-		now := time.Now()
-		delay := f.computedDelay(spider)
-		if delay > 0 {
-			penalty := delay - now.Sub(slot.lastSeen)
-			if penalty > 0 {
-				time.Sleep(penalty)
-				continue
-			}
-		}
+		select {
+		case <-slot.closed:
+			return
 
-		for len(slot.tasks) > 0 && (slot.concurrency-slot.active) > 0 {
-			task := <-slot.tasks
-
-			slot.lastSeen = time.Now()
-			go f.fetch(slot, task, spider)
-
+		default:
+			now := time.Now()
+			delay := f.computedDelay(spider)
 			if delay > 0 {
-				break
+				penalty := delay - now.Sub(slot.lastSeen)
+				if penalty > 0 {
+					time.Sleep(penalty)
+					continue
+				}
+			}
+
+			for len(slot.tasks) > 0 && (slot.concurrency-slot.active) > 0 {
+				task := <-slot.tasks
+
+				slot.lastSeen = time.Now()
+				f.waitGroup.Add(1)
+				go f.fetch(slot, task, spider)
+
+				if delay > 0 {
+					break
+				}
 			}
 		}
 	}
 }
 
 func (f *Fetcher) fetch(slot *Slot, task *task, spider ISpider) {
+	defer f.waitGroup.Done()
+
 	slot.active++
 	defer func() {
 		slot.active--
@@ -167,8 +192,10 @@ func (f *Fetcher) getSlotKey(req *Request) string {
 }
 
 func (f *Fetcher) addSlot(key string, spider ISpider) *Slot {
-	slot := &Slot{}
-	slot.concurrency = spider.ConcurrentRequests()
+	slot := &Slot{
+		concurrency: spider.ConcurrentRequests(),
+		closed: make(chan struct{}),
+	}
 	if slot.concurrency == 0 {
 		if f.IpConcurrency > 0 {
 			slot.concurrency = f.IpConcurrency
@@ -180,8 +207,39 @@ func (f *Fetcher) addSlot(key string, spider ISpider) *Slot {
 
 	go f.work(slot, spider)
 
+	f.mutex.Lock()
 	f.slots[key] = slot
+	f.mutex.Unlock()
+
 	return slot
+}
+
+func (f *Fetcher) purgeSlots() {
+	ticker := time.NewTicker(time.Minute)
+	for {
+		select {
+		case <-f.closed:
+			ticker.Stop()
+			return
+
+		case <-ticker.C:
+			idleSlots := make(map[string]*Slot)
+			f.mutex.RLock()
+			for key, slot := range f.slots {
+				if len(slot.tasks) == 0 && slot.active == 0 {
+					idleSlots[key] = slot
+				}
+			}
+			f.mutex.RUnlock()
+
+			f.mutex.Lock()
+			for key, slot := range idleSlots {
+				delete(f.slots, key)
+				close(slot.closed)
+			}
+			f.mutex.RUnlock()
+		}
+	}
 }
 
 type FetcherMiddleware interface {}
