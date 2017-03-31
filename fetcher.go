@@ -9,24 +9,28 @@ import (
 )
 
 type IFetcher interface {
+	NeedsBackout() bool
 	Fetch(req *Request, spider ISpider) (*Response, *Request, error)
+	Opener
+	Closer
 }
 
 type Fetcher struct {
-	Handlers          map[string]FetcherHandler
 	TotalConcurrency  int
 	DomainConcurrency int
 	IpConcurrency     int
 	Delay             time.Duration
 	RandomizeDelay    bool
-	*FetcherMiddlewareManager
-	slots    map[string]*Slot
-	dnscache *dnscache.Resolver
-	active   int
-	*rand.Rand
-	mutex     *sync.RWMutex
-	closed    chan struct{}
-	waitGroup *sync.WaitGroup
+
+	handlers      map[string]FetcherHandler
+	middleManager *FetcherMiddlewareManager
+	slots         map[string]*fetchSlot
+	dnscache      *dnscache.Resolver
+	active        int
+	rand          *rand.Rand
+	mutex         *sync.RWMutex
+	closed        chan struct{}
+	waitGroup     *sync.WaitGroup
 }
 
 type FetcherHandler interface {
@@ -34,27 +38,34 @@ type FetcherHandler interface {
 	Close()
 }
 
-type fetchresult struct {
-	rep *Response
-	err error
+type fetchResult struct {
+	response *Response
+	err      error
 }
 
-type task struct {
+type fetchTask struct {
 	request *Request
-	result  chan *fetchresult
+	result  chan *fetchResult
 }
 
-type Slot struct {
+type fetchSlot struct {
 	concurrency int
-	tasks       chan *task
-	active      int
+	holders     chan struct{}
+	tasks       chan *fetchTask
 	lastSeen    time.Time
 	closed      chan struct{}
 }
 
 func NewFetcher() *Fetcher {
 	return &Fetcher{
-		Rand: rand.New(rand.NewSource(time.Now().UTC().UnixNano())),
+		handlers:      make(map[string]FetcherHandler),
+		middleManager: &FetcherMiddlewareManager{},
+		slots:         make(map[string]*fetchSlot),
+		dnscache:      dnscache.New(8192, time.Minute),
+		rand:          rand.New(rand.NewSource(time.Now().UTC().UnixNano())),
+		mutex:         &sync.RWMutex{},
+		closed:        make(chan struct{}),
+		waitGroup:     &sync.WaitGroup{},
 	}
 }
 
@@ -64,7 +75,7 @@ func (f *Fetcher) Open(spider ISpider) {
 }
 
 func (f *Fetcher) Close(spider ISpider) {
-	for _, handler := range f.Handlers {
+	for _, handler := range f.handlers {
 		handler.Close()
 	}
 
@@ -86,7 +97,7 @@ func (f *Fetcher) Fetch(req *Request, spider ISpider) (*Response, *Request, erro
 		f.active--
 	}()
 
-	return f.FetcherMiddlewareManager.Fetch(f.fetchRequest, req, spider)
+	return f.middleManager.process(f.fetchRequest, req, spider)
 }
 
 func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) {
@@ -98,15 +109,16 @@ func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) 
 		slot = f.addSlot(key, spider)
 	}
 
-	result := make(chan *fetchresult)
+	result := make(chan *fetchResult)
 
-	slot.tasks <- &task{req, result}
+	slot.holders <- struct{}{}
+	slot.tasks <- &fetchTask{req, result}
 
 	r := <-result
-	return r.rep, r.err
+	return r.response, r.err
 }
 
-func (f *Fetcher) runSlot(slot *Slot, spider ISpider) {
+func (f *Fetcher) runSlot(slot *fetchSlot, spider ISpider) {
 	f.waitGroup.Add(1)
 	defer f.waitGroup.Done()
 
@@ -126,7 +138,7 @@ func (f *Fetcher) runSlot(slot *Slot, spider ISpider) {
 				}
 			}
 
-			for len(slot.tasks) > 0 && (slot.concurrency-slot.active) > 0 {
+			for {
 				task := <-slot.tasks
 
 				slot.lastSeen = time.Now()
@@ -141,25 +153,21 @@ func (f *Fetcher) runSlot(slot *Slot, spider ISpider) {
 	}
 }
 
-func (f *Fetcher) fetch(slot *Slot, task *task, spider ISpider) {
+func (f *Fetcher) fetch(slot *fetchSlot, task *fetchTask, spider ISpider) {
 	defer f.waitGroup.Done()
-
-	slot.active++
-	defer func() {
-		slot.active--
-	}()
 
 	req := task.request
 	var rep *Response
 	var err error
 	scheme := req.Request.URL.Scheme // TODO: not only http url
-	handler, ok := f.Handlers[scheme]
+	handler, ok := f.handlers[scheme]
 	if ok {
 		rep, err = handler.Fetch(req, spider)
 	} else {
 		err = fmt.Errorf("unsupported URL scheme '%s'", scheme)
 	}
-	task.result <- &fetchresult{rep, err}
+	task.result <- &fetchResult{rep, err}
+	<-slot.holders
 }
 
 func (f *Fetcher) computedDelay(spider ISpider) time.Duration {
@@ -171,7 +179,7 @@ func (f *Fetcher) computedDelay(spider ISpider) time.Duration {
 	}
 
 	if f.RandomizeDelay {
-		return time.Duration(0.5*delay + f.Rand.Int63n(int64(delay)))
+		return time.Duration(0.5*delay + f.rand.Int63n(int64(delay)))
 	} else {
 		return delay
 	}
@@ -194,8 +202,8 @@ func (f *Fetcher) getSlotKey(req *Request) string {
 	return key
 }
 
-func (f *Fetcher) addSlot(key string, spider ISpider) *Slot {
-	slot := &Slot{
+func (f *Fetcher) addSlot(key string, spider ISpider) *fetchSlot {
+	slot := &fetchSlot{
 		concurrency: spider.ConcurrentRequests(),
 		closed:      make(chan struct{}),
 	}
@@ -206,7 +214,8 @@ func (f *Fetcher) addSlot(key string, spider ISpider) *Slot {
 			slot.concurrency = f.DomainConcurrency
 		}
 	}
-	slot.tasks = make(chan *task, slot.concurrency)
+	slot.holders = make(chan struct{}, slot.concurrency)
+	slot.tasks = make(chan *fetchTask)
 
 	go f.runSlot(slot, spider)
 
@@ -229,10 +238,10 @@ func (f *Fetcher) gcSlots() {
 			return
 
 		case <-ticker.C:
-			idleSlots := make(map[string]*Slot)
+			idleSlots := make(map[string]*fetchSlot)
 			f.mutex.RLock()
 			for key, slot := range f.slots {
-				if len(slot.tasks) == 0 && slot.active == 0 {
+				if len(slot.holders) == 0 {
 					idleSlots[key] = slot
 				}
 			}
@@ -323,7 +332,7 @@ func (fmm *FetcherMiddlewareManager) Register(middleware FetcherMiddleware) {
 	}
 }
 
-func (fmm *FetcherMiddlewareManager) Fetch(fetchFunc func(*Request, ISpider) (*Response, error), request *Request, spider ISpider) (*Response, *Request, error) {
+func (fmm *FetcherMiddlewareManager) process(fetchFunc func(*Request, ISpider) (*Response, error), request *Request, spider ISpider) (*Response, *Request, error) {
 	var rep *Response
 	var req *Request
 	var err error
