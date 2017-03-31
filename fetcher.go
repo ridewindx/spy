@@ -1,11 +1,11 @@
 package spy
 
 import (
-	"time"
-	"math/rand"
 	"fmt"
-	"sync"
 	"github.com/ridewindx/crumb/dnscache"
+	"math/rand"
+	"sync"
+	"time"
 )
 
 type IFetcher interface {
@@ -20,12 +20,12 @@ type Fetcher struct {
 	Delay             time.Duration
 	RandomizeDelay    bool
 	*FetcherMiddlewareManager
-	slots             map[string]*Slot
-	dnscache          *dnscache.Resolver
-	active            int
+	slots    map[string]*Slot
+	dnscache *dnscache.Resolver
+	active   int
 	*rand.Rand
-	mutex             *sync.RWMutex
-	closed            chan struct{}
+	mutex     *sync.RWMutex
+	closed    chan struct{}
 	waitGroup *sync.WaitGroup
 }
 
@@ -41,7 +41,7 @@ type fetchresult struct {
 
 type task struct {
 	request *Request
-	result chan *fetchresult
+	result  chan *fetchresult
 }
 
 type Slot struct {
@@ -49,7 +49,7 @@ type Slot struct {
 	tasks       chan *task
 	active      int
 	lastSeen    time.Time
-	closed chan struct{}
+	closed      chan struct{}
 }
 
 func NewFetcher() *Fetcher {
@@ -76,6 +76,10 @@ func (f *Fetcher) Close(spider ISpider) {
 	f.waitGroup.Wait()
 }
 
+func (f *Fetcher) NeedsBackout() bool {
+	return f.active >= f.TotalConcurrency
+}
+
 func (f *Fetcher) Fetch(req *Request, spider ISpider) (*Response, *Request, error) {
 	f.active++
 	defer func() {
@@ -83,10 +87,6 @@ func (f *Fetcher) Fetch(req *Request, spider ISpider) (*Response, *Request, erro
 	}()
 
 	return f.FetcherMiddlewareManager.Fetch(f.fetchRequest, req, spider)
-}
-
-func (f *Fetcher) NeedsBackout() bool {
-	return f.active >= f.TotalConcurrency
 }
 
 func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) {
@@ -102,11 +102,11 @@ func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) 
 
 	slot.tasks <- &task{req, result}
 
-	r := <- result
+	r := <-result
 	return r.rep, r.err
 }
 
-func (f *Fetcher) work(slot *Slot, spider ISpider) {
+func (f *Fetcher) runSlot(slot *Slot, spider ISpider) {
 	f.waitGroup.Add(1)
 	defer f.waitGroup.Done()
 
@@ -197,7 +197,7 @@ func (f *Fetcher) getSlotKey(req *Request) string {
 func (f *Fetcher) addSlot(key string, spider ISpider) *Slot {
 	slot := &Slot{
 		concurrency: spider.ConcurrentRequests(),
-		closed: make(chan struct{}),
+		closed:      make(chan struct{}),
 	}
 	if slot.concurrency == 0 {
 		if f.IpConcurrency > 0 {
@@ -208,7 +208,7 @@ func (f *Fetcher) addSlot(key string, spider ISpider) *Slot {
 	}
 	slot.tasks = make(chan *task, slot.concurrency)
 
-	go f.work(slot, spider)
+	go f.runSlot(slot, spider)
 
 	f.mutex.Lock()
 	f.slots[key] = slot
@@ -248,7 +248,7 @@ func (f *Fetcher) gcSlots() {
 	}
 }
 
-type FetcherMiddleware interface {}
+type FetcherMiddleware interface{}
 
 type FetchingRequestProcessor interface {
 	/* ProcessRequest is called for each request that goes through the fetcher middleware.
@@ -267,7 +267,7 @@ type FetchingRequestProcessor interface {
 	If it returns an IgnoreRequest error, the ProcessError methods of installed downloader middleware will be called.
 	If none of them handle the error, the callback function of the request (Request.Callback) is called.
 	If no code handles the returned error, it is ignored and not logged (unlike other error).
-	 */
+	*/
 	ProcessRequest(request *Request, spider ISpider) (*Response, *Request, error)
 }
 
@@ -282,7 +282,7 @@ type FetchingResponseProcessor interface {
 
 	If it returns an IgnoreRequest error, the callback function of the request (Request.Callback) is called.
 	If no code handles the returned error, it is ignored and not logged (unlike other error).
-	 */
+	*/
 	ProcessResponse(response *Response, request *Request, spider ISpider) (*Response, *Request, error)
 }
 
@@ -298,15 +298,15 @@ type FetchingErrorProcessor interface {
 
 	If it returns a Request object, the returned request is rescheduled to be performed in the future.
 	This stops the execution of ProcessError methods of the middleware the same as returning a response would.
-	 */
+	*/
 	ProcessError(err error, request *Request, spider ISpider) (*Response, *Request)
 }
 
 type FetcherMiddlewareManager struct {
-	middlewares []FetcherMiddleware
-	requestProcessors []FetchingRequestProcessor
+	middlewares        []FetcherMiddleware
+	requestProcessors  []FetchingRequestProcessor
 	responseProcessors []FetchingResponseProcessor
-	errorProcessors []FetchingErrorProcessor
+	errorProcessors    []FetchingErrorProcessor
 }
 
 func (fmm *FetcherMiddlewareManager) Register(middleware FetcherMiddleware) {
