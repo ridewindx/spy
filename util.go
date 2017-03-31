@@ -28,6 +28,12 @@ func closeAll(spider ISpider, closers ...interface{}) {
 
 func assert(value bool, formatAndArgs ...interface{}) {
 	if !value {
-		panic(fmt.Sprintf(formatAndArgs...))
+		var msg string
+		if len(formatAndArgs) == 1 {
+			msg = formatAndArgs[0].(string)
+		} else {
+			msg = fmt.Sprintf(formatAndArgs[0].(string), formatAndArgs[1:]...)
+		}
+		panic(msg)
 	}
 }
