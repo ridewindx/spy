@@ -31,10 +31,22 @@ type FetcherHandler interface {
 	Close()
 }
 
+type fetchresult struct {
+	rep *Response
+	err error
+}
+
+type task struct {
+	request *Request
+	result chan *fetchresult
+}
+
 type Slot struct {
 	concurrency int
-	queue *queue.Queue
-	active map[*Request]struct{}
+	//queue *queue.Queue
+	tasks chan *task
+	active chan *Request
+	//active map[*Request]struct{}
 	transferring map[*Request]struct{}
 	lastSeen time.Time
 }
@@ -49,11 +61,19 @@ func NewFetcher() *Fetcher {
 	}
 }
 
+func (f *Fetcher) Open(spider ISpider) {
+
+}
+
+func (f *Fetcher) Close(spider ISpider) {
+
+}
+
 func (f *Fetcher) Fetch(req *Request, spider ISpider) (*FetchResult, error) {
 	f.active[req] = struct{}{}
 	defer delete(f.active, req)
 
-	rep, req, err := f.FetcherMiddlewareManager.Fetch(f.enqueueRequest, req, spider)
+	rep, req, err := f.FetcherMiddlewareManager.Fetch(f.fetchRequest, req, spider)
 	if result.error != nil {
 		return nil, result.error
 	}
@@ -70,17 +90,18 @@ func (f *Fetcher) Close() {
 	}
 }
 
-func (f *Fetcher) enqueueRequest(req *Request, spider ISpider) {
+func (f *Fetcher) fetchRequest(req *Request, spider ISpider) (*Response, error) {
 	slot := f.getSlot(req, spider)
 
 	slot.active[req] = struct{}{}
 	defer delete(slot.active, req)
 
-	err := slot.queue.Put(req)
-	if err != nil {
-		panic(err)
-	}
-	f.processQueue(slot, spider)
+	result := make(chan *fetchresult)
+
+	slot.tasks <- &task{req, result}
+
+	r := <- result
+	return r.rep, r.err
 }
 
 func (f *Fetcher) processQueue(slot *Slot, spider ISpider) {
@@ -107,6 +128,23 @@ func (f *Fetcher) processQueue(slot *Slot, spider ISpider) {
 		}
 	}
 	return
+}
+
+func (f *Fetcher) work(slot *Slot, spider ISpider) {
+	now := time.Now()
+	delay := f.computedDelay(spider)
+	if delay > 0 {
+		penalty := delay - now.Sub(slot.lastSeen)
+		if penalty > 0 {
+			time.Sleep(penalty)
+			return
+		}
+	}
+
+	task := <- slot.tasks
+	slot.lastSeen = time.Now()
+	rep, err := f.fetch(slot, task.request, spider)
+	task.result <- &fetchresult{rep, err}
 }
 
 func (f *Fetcher) fetch(slot *Slot, req *Request, spider ISpider) (*Response, error){
@@ -165,6 +203,13 @@ func (f *Fetcher) getSlot(req *Request, spider ISpider) *Slot {
 				slot.concurrency = f.DomainConcurrency
 			}
 		}
+		slot.queue = make(chan *Request, slot.concurrency)
+		slot.active = make(chan *Request, slot.concurrency)
+
+		go func() {
+
+		}()
+
 		f.slots[key] = slot
 	}
 	return slot
