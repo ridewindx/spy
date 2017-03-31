@@ -20,11 +20,11 @@ func (ipm *ItemPipelineManager) Register(middleware ItemPipelineMiddleware) {
 }
 
 func (ipm *ItemPipelineManager) Open(spider ISpider) {
-	open(spider, ipm.middlewares...)
+	openAll(spider, ipm.middlewares...)
 }
 
 func (ipm *ItemPipelineManager) Close(spider ISpider) {
-	close(spider, ipm.middlewares...)
+	closeAll(spider, ipm.middlewares...)
 }
 
 func (ipm *ItemPipelineManager) ProcessItem(item *Item, spider ISpider) (*Item, error) {
