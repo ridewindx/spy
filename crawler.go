@@ -132,24 +132,24 @@ func (c *Crawler) needsBackout() bool {
 }
 
 func (c *Crawler) fetch(request *Request) {
-	result, err := c.Fetcher.Fetch(request, c.Spider)
+	rep, req, err := c.Fetcher.Fetch(request, c.Spider)
 
 	if err != nil {
 		c.enqueueScrape(nil, err, request) // enqueue fetching error
 		return
 	}
-	if result.Response != nil {
-		result.Response.Request = request // tie request to response received
+	if rep != nil {
+		rep.Request = request // tie request to response received
 		c.Logger.WithFields(logrus.Fields{
 			"event":   "RequestCrawled",
-			"status":  result.Response.StatusCode,
+			"status":  rep.StatusCode,
 			"request": request,
-		}).Debugf("Crawled request %s, status %d", request, result.Response.StatusCode)
-		ResponseReceived.Pub(c.Spider, request, result.Response)
+		}).Debugf("Crawled request %s, status %d", request, rep.StatusCode)
+		ResponseReceived.Pub(c.Spider, request, rep)
 
-		c.enqueueScrape(result.Response, nil, request) // enqueue fetching response
+		c.enqueueScrape(rep, nil, request) // enqueue fetching response
 	} else { // fetcher can return request, i.e., redirect
-		c.enqueueRequest(result.Request)
+		c.enqueueRequest(req)
 	}
 }
 
