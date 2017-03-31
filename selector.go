@@ -1,8 +1,8 @@
 package spy
 
 import (
-	"regexp"
 	"github.com/PuerkitoBio/goquery"
+	"regexp"
 )
 
 type Selector interface {

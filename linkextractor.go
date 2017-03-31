@@ -2,37 +2,37 @@ package spy
 
 import (
 	"fmt"
-	"regexp"
-	"strings"
 	"net/url"
 	"path"
+	"regexp"
+	"strings"
 )
 
 // common file extensions that are not followed if they occur in links
 var IgnoredExtensions = []string{
-// images
-"mng", "pct", "bmp", "gif ", "jpg", "jpeg", "png", "pst", "psp", "tif",
-"tiff", "ai", "drw", "dxf", "eps", "ps", "svg",
+	// images
+	"mng", "pct", "bmp", "gif ", "jpg", "jpeg", "png", "pst", "psp", "tif",
+	"tiff", "ai", "drw", "dxf", "eps", "ps", "svg",
 
-// audio
-"mp3", "wma", "ogg", "wav", "ra", "aac", "mid", "au", "aiff",
+	// audio
+	"mp3", "wma", "ogg", "wav", "ra", "aac", "mid", "au", "aiff",
 
-// video
-"3gp", "asf", "asx", "avi", "mov", "mp4", "mpg", "qt", "rm", "swf", "wmv",
-"m4a",
+	// video
+	"3gp", "asf", "asx", "avi", "mov", "mp4", "mpg", "qt", "rm", "swf", "wmv",
+	"m4a",
 
-// office suites
-"xls", "xlsx", "ppt", "pptx", "pps", "doc", "docx", "odt", "ods", "odg",
-"odp",
+	// office suites
+	"xls", "xlsx", "ppt", "pptx", "pps", "doc", "docx", "odt", "ods", "odg",
+	"odp",
 
-// other
-"css", "pdf", "exe", "bin", "rss", "zip", "rar",
+	// other
+	"css", "pdf", "exe", "bin", "rss", "zip", "rar",
 }
 
 // Link represents an extracted link.
 type Link struct {
-	url *url.URL
-	text string
+	url      *url.URL
+	text     string
 	fragment string
 	noFollow bool
 }
@@ -88,8 +88,8 @@ type HTMLLinkExtractor struct {
 	Attrs []string
 
 	allowRes []*regexp.Regexp
-	denyRes []*regexp.Regexp
-	tags string
+	denyRes  []*regexp.Regexp
+	tags     string
 }
 
 func (hle *HTMLLinkExtractor) Init() {
@@ -186,8 +186,8 @@ func (hle *HTMLLinkExtractor) ExtractLinks(response *Response) []*Link {
 			}
 
 			links = append(links, &Link{
-				url: u,
-				text: element.Extract(),
+				url:      u,
+				text:     element.Extract(),
 				noFollow: noFollow,
 			})
 		}

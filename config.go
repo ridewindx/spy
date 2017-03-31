@@ -5,11 +5,11 @@ import "github.com/spf13/viper"
 type Config struct {
 	*viper.Viper
 
-	ConcurrentRequests int
+	ConcurrentRequests          int
 	ConcurrentRequestsPerDomain int
-	ConcurrentRequestsPerIp int
-	RandomizeFetchDelay bool
-	FetchDelay float64
+	ConcurrentRequestsPerIp     int
+	RandomizeFetchDelay         bool
+	FetchDelay                  float64
 }
 
 const ItemPipelines = "ItemPipelines"

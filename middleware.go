@@ -28,7 +28,7 @@ type Middleware interface {
 
 type MiddlewareManager struct {
 	middlewares []Middleware
-	methods map[string][]interface{}
+	methods     map[string][]interface{}
 }
 
 func NewMiddlewareManager() *MiddlewareManager {

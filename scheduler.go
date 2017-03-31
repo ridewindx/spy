@@ -8,13 +8,10 @@ type IScheduler interface {
 }
 
 type Scheduler struct {
-
 }
 
 func NewScheduler() *Scheduler {
-	return &Scheduler{
-
-	}
+	return &Scheduler{}
 }
 
 func (s *Scheduler) Open(spider ISpider) {

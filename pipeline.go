@@ -7,7 +7,7 @@ type ItemProcessor interface {
 }
 
 type ItemPipelineManager struct {
-	middlewares []ItemPipelineMiddleware
+	middlewares    []ItemPipelineMiddleware
 	itemProcessors []ItemProcessor
 }
 

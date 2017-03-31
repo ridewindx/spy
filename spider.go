@@ -6,7 +6,7 @@ type Item map[string]interface{}
 
 type SpiderResult struct {
 	Requests []*Request
-	Items []*Item
+	Items    []*Item
 }
 
 func (sr *SpiderResult) Empty() bool {
@@ -51,10 +51,9 @@ func (s *CrawlSpider) Parse(response *Response) (*SpiderResult, error) {
 }
 
 type Rule struct {
-	
 }
 
-type SpiderMiddleware interface {}
+type SpiderMiddleware interface{}
 
 type SpiderInputProcessor interface {
 	ProcessSpiderInput(response *Response, spider ISpider) error
@@ -73,10 +72,10 @@ type StartRequestsProcessor interface {
 }
 
 type SpiderMiddlewareManager struct {
-	middlewares []SpiderMiddleware
-	spiderInputProcessors []SpiderInputProcessor
-	spiderOutputProcessors []SpiderOutputProcessor
-	spiderErrorProcessors []SpiderErrorProcessor
+	middlewares             []SpiderMiddleware
+	spiderInputProcessors   []SpiderInputProcessor
+	spiderOutputProcessors  []SpiderOutputProcessor
+	spiderErrorProcessors   []SpiderErrorProcessor
 	startRequestsProcessors []StartRequestsProcessor
 }
 

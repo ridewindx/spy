@@ -1,14 +1,14 @@
 package spy
 
 type Stats struct {
-	Name string
+	Name          string
 	uint64Buckets map[string]uint64
 	stringBuckets map[string]string
 }
 
 func NewStats(name string) *Stats {
 	return &Stats{
-		Name: name,
+		Name:          name,
 		uint64Buckets: make(map[string]uint64),
 		stringBuckets: make(map[string]string),
 	}

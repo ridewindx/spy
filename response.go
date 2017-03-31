@@ -1,14 +1,14 @@
 package spy
 
 import (
-	"io"
-	"net/http"
-	"mime"
-	"encoding/xml"
 	"encoding/json"
-	"io/ioutil"
-	"golang.org/x/net/html/charset"
+	"encoding/xml"
 	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/html/charset"
+	"io"
+	"io/ioutil"
+	"mime"
+	"net/http"
 	"net/url"
 )
 
@@ -25,24 +25,24 @@ const (
 
 type Response struct {
 	*http.Response
-	reader    io.Reader
+	reader io.Reader
 
 	MediaType string
 	HTMLDoc   *goquery.Document
 
 	/* Request which generated this response.
-	This attribute is assigned in the `Crawler`, after the response and the request have passed
-    through all `Fetcher Middlewares`. In particular, this means that:
+		This attribute is assigned in the `Crawler`, after the response and the request have passed
+	    through all `Fetcher Middlewares`. In particular, this means that:
 
-    - HTTP redirections will cause the original request (to the URL before
-      redirection) to be assigned to the redirected response (with the final
-      URL after redirection).
+	    - HTTP redirections will cause the original request (to the URL before
+	      redirection) to be assigned to the redirected response (with the final
+	      URL after redirection).
 
-    - Response.Request.URL doesn't always equal Response.Response.URL
+	    - Response.Request.URL doesn't always equal Response.Response.URL
 
-    - This attribute is only available in the spider code, and in the `Spider Middlewares`,
-      but not in `Downloader Middlewares` (although you have the Request available there by
-      other means) and handlers of the `response_downloaded` signal.
+	    - This attribute is only available in the spider code, and in the `Spider Middlewares`,
+	      but not in `Downloader Middlewares` (although you have the Request available there by
+	      other means) and handlers of the `response_downloaded` signal.
 	*/
 	*Request
 }

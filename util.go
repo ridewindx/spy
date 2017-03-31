@@ -19,7 +19,7 @@ func openAll(spider ISpider, openers ...interface{}) {
 }
 
 func closeAll(spider ISpider, closers ...interface{}) {
-	for i := len(closers)-1; i >= 0; i-- {
+	for i := len(closers) - 1; i >= 0; i-- {
 		if closer, ok := closers[i].(Closer); ok {
 			closer.Close(spider)
 		}

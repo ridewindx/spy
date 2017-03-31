@@ -1,18 +1,18 @@
 package spy
 
 import (
+	"bytes"
 	"net/http"
 	"net/url"
 	"sort"
-	"bytes"
 )
 
 type Request struct {
 	*http.Request
-	Error error
-	Meta map[string]interface{}
+	Error     error
+	Meta      map[string]interface{}
 	NotFilter bool
-	Callback func(response *Response, err error) (*SpiderResult, error)
+	Callback  func(response *Response, err error) (*SpiderResult, error)
 }
 
 func NewRequest(urlStr, method string) *Request {

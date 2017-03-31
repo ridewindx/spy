@@ -1,10 +1,10 @@
 package spy
 
 import (
-	"reflect"
-	"github.com/Sirupsen/logrus"
 	"github.com/Jeffail/tunny"
+	"github.com/Sirupsen/logrus"
 	"github.com/ridewindx/crumb/concurrency"
+	"reflect"
 )
 
 type Crawler struct {
@@ -14,9 +14,9 @@ type Crawler struct {
 
 	Concurrency int
 
-	Spider ISpider
+	Spider    ISpider
 	Scheduler IScheduler
-	Fetcher IFetcher
+	Fetcher   IFetcher
 	*SpiderMiddlewareManager
 	*ItemPipelineManager
 
@@ -30,11 +30,11 @@ func NewCrawler(spider ISpider, scheduler IScheduler) *Crawler {
 	concurrencyLimit := 100
 
 	return &Crawler{
-		Spider: spider,
-		Scheduler: scheduler,
+		Spider:      spider,
+		Scheduler:   scheduler,
 		Concurrency: concurrencyLimit,
-		WorkPool: tunny.CreatePoolGeneric(concurrencyLimit),
-		Worker: concurrency.NewWorker(),
+		WorkPool:    tunny.CreatePoolGeneric(concurrencyLimit),
+		Worker:      concurrency.NewWorker(),
 	}
 }
 
@@ -141,8 +141,8 @@ func (c *Crawler) fetch(request *Request) {
 	if result.Response != nil {
 		result.Response.Request = request // tie request to response received
 		c.Logger.WithFields(logrus.Fields{
-			"event": "RequestCrawled",
-			"status": result.Response.StatusCode,
+			"event":   "RequestCrawled",
+			"status":  result.Response.StatusCode,
 			"request": request,
 		}).Debugf("Crawled request %s, status %d", request, result.Response.StatusCode)
 		ResponseReceived.Pub(c.Spider, request, result.Response)
@@ -185,7 +185,7 @@ func (c *Crawler) scrape(response *Response, err error, request *Request) {
 		}
 		c.Logger.WithError(err).Errorf("Processing request %s (referer: %s)", request, request.Header.Get("Referer"))
 		SpiderError.Pub(c.Spider, response, err)
-		c.Stats.Inc("SpiderError/"+reflect.TypeOf(err).Name())
+		c.Stats.Inc("SpiderError/" + reflect.TypeOf(err).Name())
 	}
 }
 
@@ -202,7 +202,7 @@ func (c *Crawler) processSpiderItem(item *Item, response *Response) {
 		if err == ErrItemDropped {
 			c.Logger.WithFields(logrus.Fields{
 				"event": "ItemDropped",
-				"item": item,
+				"item":  item,
 			}).Warnf("Dropped item %s", item)
 			ItemDropped.Pub(c.Spider, response, item)
 		} else if err != nil {
@@ -210,8 +210,8 @@ func (c *Crawler) processSpiderItem(item *Item, response *Response) {
 		} else {
 			c.Logger.WithFields(logrus.Fields{
 				"event": "ItemScraped",
-				"item": resultItem,
-				"src": response,
+				"item":  resultItem,
+				"src":   response,
 			}).Debugf("Scraped item %s from %s", resultItem, response)
 		}
 	}, nil)
