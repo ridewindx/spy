@@ -1,8 +1,8 @@
 package spy
 
 type IScheduler interface {
-	Open(spider ISpider)
-	Close(spider ISpider)
+	Opener
+	Closer
 	EnqueueRequest(request *Request) bool
 	NextRequest() *Request
 }
