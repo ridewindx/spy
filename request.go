@@ -25,6 +25,8 @@ func NewRequest(urlStr, method string) *Request {
 	return req
 }
 
+func (req *Request) Fingerprint()
+
 func uniqueURL(u *url.URL, ignoreQuery bool) string {
 	forceQuery := u.ForceQuery
 	rawQuery := u.RawQuery
