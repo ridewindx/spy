@@ -5,6 +5,10 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"github.com/ridewindx/crumb/weakref"
+	"crypto/sha1"
+	"bufio"
+	"encoding/hex"
 )
 
 type Request struct {
@@ -25,8 +29,39 @@ func NewRequest(urlStr, method string) *Request {
 	return req
 }
 
-func (req *Request) Fingerprint()
+var fingerprintCache = weakref.NewWeakPtrMap()
 
+// Fingerprint returns a hash that uniquely identifies the request.
+// Ignore all headers.
+func (req *Request) Fingerprint() string {
+	val, ok := fingerprintCache.Get(req)
+	if ok {
+		return val.(string)
+	} else {
+		h := sha1.New()
+
+		buf := bufio.NewWriterSize(h, 1024)
+		buf.WriteString(req.Method)
+		buf.WriteString(uniqueURL(req.URL, false))
+		body, err := req.GetBody()
+		if err != nil {
+			panic("request.GetBody returns error: "+err.Error())
+		}
+		buf.ReadFrom(body)
+		buf.Flush()
+
+		fingerprint := hex.EncodeToString(h.Sum(nil))
+		fingerprintCache.Put(req, fingerprint)
+
+		return fingerprint
+	}
+}
+
+// uniqueURL computes a string from the url by:
+// - retain query arguments with blank values
+// - sort query arguments, first by key, then by value
+// - escape query string
+// - remove fragments
 func uniqueURL(u *url.URL, ignoreQuery bool) string {
 	forceQuery := u.ForceQuery
 	rawQuery := u.RawQuery
@@ -58,9 +93,9 @@ func uniqueURL(u *url.URL, ignoreQuery bool) string {
 		sort.Strings(vs)
 		for _, v := range vs {
 			buf.WriteByte('&')
-			buf.WriteString(k)
+			buf.WriteString(url.QueryEscape(k))
 			buf.WriteByte('=')
-			buf.WriteString(v)
+			buf.WriteString(url.QueryEscape(v))
 		}
 	}
 	buf.Bytes()[mark] = '?'
