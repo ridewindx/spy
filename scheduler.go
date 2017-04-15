@@ -8,6 +8,7 @@ type IScheduler interface {
 }
 
 type Scheduler struct {
+	dupeFilter DupeFilter
 }
 
 func NewScheduler() *Scheduler {
@@ -15,14 +16,19 @@ func NewScheduler() *Scheduler {
 }
 
 func (s *Scheduler) Open(spider ISpider) {
-
+	s.dupeFilter.Open(spider)
 }
 
 func (s *Scheduler) Close(spider ISpider) {
-
+	s.dupeFilter.Close(spider)
 }
 
 func (s *Scheduler) EnqueueRequest(request *Request) bool {
+	if !request.NotFilter && s.dupeFilter.SeenRequest(request) {
+		return false
+	}
+
+
 
 }
 

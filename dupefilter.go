@@ -11,13 +11,14 @@ import (
 type DupeFilter interface {
 	Opener
 	Closer
-	SeenRequest(request *Request, spider ISpider) bool
+	SeenRequest(request *Request) bool
 }
 
 type FingerprintDupeFilter struct {
 	fingerprints *set.Set
 	file *os.File
 	*logrus.Logger
+	spider ISpider
 }
 
 func NewFingerprintDupeFilter(logger *logrus.Logger, filename ...string) *FingerprintDupeFilter {
@@ -48,6 +49,7 @@ func NewFingerprintDupeFilter(logger *logrus.Logger, filename ...string) *Finger
 }
 
 func (f *FingerprintDupeFilter) Open(spider ISpider) {
+	f.spider = spider
 }
 
 func (f *FingerprintDupeFilter) Close(spider ISpider) {
@@ -56,15 +58,16 @@ func (f *FingerprintDupeFilter) Close(spider ISpider) {
 	}
 }
 
-func (f *FingerprintDupeFilter) SeenRequest(request *Request, spider ISpider) bool {
+func (f *FingerprintDupeFilter) SeenRequest(request *Request) bool {
 	fp := request.Fingerprint()
 	if f.fingerprints.Contains(fp) {
 		if f.Logger != nil {
 			f.WithFields(logrus.Fields{
-				"spider": spider,
+				"spider": f.spider,
 				"request": request,
 			}).Debugf("Filtered duplicate request %s", request)
 		}
+		f.spider.Crawler().Stats.Inc("dupefilter/filtered")
 		return true
 	}
 

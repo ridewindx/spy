@@ -19,6 +19,7 @@ type ISpider interface {
 	FetchDelay() time.Duration
 	ConcurrentRequests() int
 	String() string
+	Crawler() *Crawler
 }
 
 type Spider struct {
